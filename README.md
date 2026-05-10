@@ -1,4 +1,4 @@
-# RaidBot Spanish
+# RaidBot Español Versión
 
 **Información General**
 
